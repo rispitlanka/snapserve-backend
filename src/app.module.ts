@@ -12,6 +12,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { PurchasesModule } from './purchases/purchases.module';
 import { RestaurantsModule } from './restaurants/restaurants.module';
 import { RegistersModule } from './registers/registers.module';
+import { KeepAliveService } from './keep-alive.service';
 import { SuppliersModule } from './suppliers/suppliers.module';
 import { UsersModule } from './users/users.module';
 
@@ -32,6 +33,6 @@ import { UsersModule } from './users/users.module';
     RegistersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, KeepAliveService],
 })
 export class AppModule {}
