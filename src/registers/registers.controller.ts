@@ -34,6 +34,7 @@ export class RegistersController {
 
   @ApiOperation({ summary: 'List registers with occupancy status' })
   @Get()
+  @Roles(Role.RESTAURANT_ADMIN, Role.CASHIER)
   list(@CurrentUser() actor: AuthUser) {
     return this.registersService.list(actor);
   }
