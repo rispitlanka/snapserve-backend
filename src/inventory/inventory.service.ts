@@ -1,9 +1,11 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { AuthUser } from '../common/types/auth-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
@@ -22,11 +24,23 @@ export class InventoryService {
     return actor.restaurantId;
   }
 
-  createCategory(actor: AuthUser, dto: CreateItemCategoryDto) {
+  async createCategory(actor: AuthUser, dto: CreateItemCategoryDto) {
     const restaurantId = this.requireRestaurant(actor);
-    return this.prisma.itemCategory.create({
-      data: { restaurantId, name: dto.name },
-    });
+    try {
+      return await this.prisma.itemCategory.create({
+        data: { restaurantId, name: dto.name },
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'A category with this name already exists for this restaurant.',
+        );
+      }
+      throw error;
+    }
   }
 
   listCategories(actor: AuthUser) {
@@ -45,13 +59,25 @@ export class InventoryService {
     if (!parent) {
       throw new NotFoundException('Category not found for this restaurant.');
     }
-    return this.prisma.itemSubCategory.create({
-      data: {
-        restaurantId,
-        categoryId: dto.categoryId,
-        name: dto.name,
-      },
-    });
+    try {
+      return await this.prisma.itemSubCategory.create({
+        data: {
+          restaurantId,
+          categoryId: dto.categoryId,
+          name: dto.name,
+        },
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'A sub-category with this name already exists under this category.',
+        );
+      }
+      throw error;
+    }
   }
 
   listSubCategories(actor: AuthUser, categoryId?: string) {
@@ -65,11 +91,23 @@ export class InventoryService {
     });
   }
 
-  createBrand(actor: AuthUser, dto: CreateBrandDto) {
+  async createBrand(actor: AuthUser, dto: CreateBrandDto) {
     const restaurantId = this.requireRestaurant(actor);
-    return this.prisma.brand.create({
-      data: { restaurantId, name: dto.name },
-    });
+    try {
+      return await this.prisma.brand.create({
+        data: { restaurantId, name: dto.name },
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'A brand with this name already exists for this restaurant.',
+        );
+      }
+      throw error;
+    }
   }
 
   listBrands(actor: AuthUser) {
@@ -108,22 +146,34 @@ export class InventoryService {
       throw new NotFoundException('Brand not found.');
     }
 
-    return this.prisma.inventoryItem.create({
-      data: {
-        restaurantId,
-        name: dto.name,
-        categoryId: dto.categoryId,
-        subCategoryId: dto.subCategoryId,
-        brandId: dto.brandId,
-        unit: dto.unit,
-        expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
-      },
-      include: {
-        category: true,
-        subCategory: true,
-        brand: true,
-      },
-    });
+    try {
+      return await this.prisma.inventoryItem.create({
+        data: {
+          restaurantId,
+          name: dto.name,
+          categoryId: dto.categoryId,
+          subCategoryId: dto.subCategoryId,
+          brandId: dto.brandId,
+          unit: dto.unit,
+          expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
+        },
+        include: {
+          category: true,
+          subCategory: true,
+          brand: true,
+        },
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'An inventory item with this name already exists for this restaurant.',
+        );
+      }
+      throw error;
+    }
   }
 
   listItems(actor: AuthUser) {
