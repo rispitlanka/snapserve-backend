@@ -126,7 +126,7 @@ export class MenuController {
   @ApiOperation({
     summary: 'Create menu item',
     description:
-      'Send multipart/form-data: field "data" (JSON string of CreateMenuItemDto) and optional field "image" (file). If "image" is sent, it is uploaded to Cloudinary and overrides menuImage in "data".',
+      'Send multipart/form-data: field "data" (JSON string of CreateMenuItemDto, including required id) and optional field "image" (file). If "image" is sent, it is uploaded to Cloudinary and overrides menuImage in "data".',
   })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -137,7 +137,7 @@ export class MenuController {
         data: {
           type: 'string',
           description:
-            'JSON string: name, categoryId, menuType, cost, optional kotEnabled, menuImage (URL), varients, addons, status.',
+            'JSON string: id (required), name, categoryId, menuType, cost, optional kotEnabled, menuImage (URL), varients, addons, status.',
         },
         image: {
           type: 'string',

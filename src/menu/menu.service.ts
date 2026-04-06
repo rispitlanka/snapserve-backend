@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -219,11 +220,13 @@ export class MenuService {
       throw new BadRequestException('One or more addons are invalid.');
     }
 
-    return this.prisma.menuItem.create({
-      data: {
-        restaurantId,
-        name: dto.name,
-        categoryId: dto.categoryId,
+    try {
+      return await this.prisma.menuItem.create({
+        data: {
+          id: dto.id,
+          restaurantId,
+          name: dto.name,
+          categoryId: dto.categoryId,
         menuTypes: dto.menuType,
         kotEnabled: dto.kotEnabled ?? true,
         cost: new Prisma.Decimal(dto.cost.toFixed(2)),
@@ -242,8 +245,25 @@ export class MenuService {
           })),
         },
       },
-      include: this.menuItemDetailInclude,
-    });
+        include: this.menuItemDetailInclude,
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const target = (error.meta?.target as string[] | undefined) ?? [];
+        if (target.includes('id') && target.length === 1) {
+          throw new ConflictException(
+            'A menu item with this id already exists. Choose a different id.',
+          );
+        }
+        throw new ConflictException(
+          'A menu item with this name already exists for this restaurant. Choose a different name.',
+        );
+      }
+      throw error;
+    }
   }
 
   listMenuItems(actor: AuthUser) {

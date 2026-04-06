@@ -195,7 +195,7 @@ model Addon {
 }
 
 model MenuItem {
-  id          String       @id @default(cuid())
+  id          String       @id
   restaurantId String
   restaurant  Restaurant   @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   name        String
@@ -302,7 +302,7 @@ model Brand {
 }
 
 model InventoryItem {
-  id             String          @id @default(cuid())
+  id             String          @id
   restaurantId   String
   restaurant     Restaurant      @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   name           String

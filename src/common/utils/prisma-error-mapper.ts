@@ -83,6 +83,27 @@ function uniqueConstraintMessage(
   target: string[],
 ): string {
   const fields = target.length ? target.join(', ') : 'unknown fields';
+
+  // Primary key id collision (client-supplied ids)
+  if (
+    target.length === 1 &&
+    target[0] === 'id' &&
+    modelName &&
+    (modelName === 'MenuItem' ||
+      modelName === 'InventoryItem' ||
+      modelName === 'Restaurant')
+  ) {
+    const idMessages: Record<string, string> = {
+      MenuItem:
+        'A menu item with this id already exists. Choose a different id.',
+      InventoryItem:
+        'An inventory item with this id already exists. Choose a different id.',
+      Restaurant:
+        'A restaurant with this id already exists. Choose a different id.',
+    };
+    return idMessages[modelName] ?? `Duplicate id for ${modelName}.`;
+  }
+
   const byModel: Record<string, string> = {
     MenuItem:
       'A menu item with this name already exists for this restaurant. Choose a different name.',
@@ -103,8 +124,6 @@ function uniqueConstraintMessage(
       'An inventory item with this name already exists for this restaurant.',
     Register:
       'A register with this name already exists for this restaurant.',
-    Restaurant:
-      'A restaurant with this id already exists. Choose a different id.',
     Order:
       'Could not assign a unique invoice id. Please try creating the order again.',
     RefreshSession:

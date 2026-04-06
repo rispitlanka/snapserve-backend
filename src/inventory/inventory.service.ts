@@ -149,6 +149,7 @@ export class InventoryService {
     try {
       return await this.prisma.inventoryItem.create({
         data: {
+          id: dto.id,
           restaurantId,
           name: dto.name,
           categoryId: dto.categoryId,
@@ -168,6 +169,12 @@ export class InventoryService {
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
+        const target = (error.meta?.target as string[] | undefined) ?? [];
+        if (target.includes('id') && target.length === 1) {
+          throw new ConflictException(
+            'An inventory item with this id already exists. Choose a different id.',
+          );
+        }
         throw new ConflictException(
           'An inventory item with this name already exists for this restaurant.',
         );

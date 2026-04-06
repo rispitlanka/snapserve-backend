@@ -1,6 +1,6 @@
 import { MenuType } from '@prisma/client';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -36,6 +36,17 @@ export class CreateMenuItemAddonPriceDto {
 }
 
 export class CreateMenuItemDto {
+  @ApiProperty({
+    description: 'Unique id for this menu item (provided by client)',
+    example: 'menu-chicken-biryani',
+  })
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(1)
+  id!: string;
+
   @ApiProperty({ example: 'Chicken Biryani' })
   @IsString()
   @MinLength(1)

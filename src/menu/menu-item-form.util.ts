@@ -23,7 +23,7 @@ function formatValidationErrors(errors: ValidationError[], parent = ''): string 
 export function parseCreateMenuItemFromDataField(dataJson: string): CreateMenuItemDto {
   if (dataJson === undefined || dataJson === null || String(dataJson).trim() === '') {
     throw new BadRequestException(
-      'Field "data" is required: send a JSON string with name, categoryId, menuType, cost, and other menu item fields.',
+      'Field "data" is required: send a JSON string with id, name, categoryId, menuType, cost, and other menu item fields.',
     );
   }
   let raw: unknown;
