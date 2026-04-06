@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InventoryMovementKind, Prisma } from '@prisma/client';
 import type { AuthUser } from '../common/types/auth-user.type';
+import { getPublicErrorMessage } from '../common/utils/prisma-error-mapper';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 
@@ -99,8 +100,15 @@ export class PurchasesService {
         }),
       );
     }
-    if (ops.length > 0) {
-      await this.prisma.$transaction(ops);
+    try {
+      if (ops.length > 0) {
+        await this.prisma.$transaction(ops);
+      }
+    } catch (err) {
+      await this.prisma.purchase.delete({ where: { id: purchase.id } });
+      throw new BadRequestException(
+        `Could not update inventory for this purchase, so the purchase was rolled back. ${getPublicErrorMessage(err)}`,
+      );
     }
 
     return purchase;

@@ -15,8 +15,9 @@ enum Role {
 }
 
 model Restaurant {
-  id               String           @id @db.VarChar(6)
+  id               String           @id
   name             String
+  mobileNumber     String?
   isActive         Boolean          @default(true)
   users            User[]
   customers        Customer[]
@@ -449,7 +450,7 @@ model Order {
 
 model Register {
   id                  String                  @id @default(cuid())
-  restaurantId        String                  @db.VarChar(6)
+  restaurantId        String
   restaurant          Restaurant              @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   name                String
   isActive            Boolean                 @default(true)
@@ -465,7 +466,7 @@ model Register {
 
 model CashierRegisterSession {
   id               String    @id @default(cuid())
-  restaurantId     String    @db.VarChar(6)
+  restaurantId     String
   restaurant       Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   registerId       String
   register         Register  @relation("RegisterSessions", fields: [registerId], references: [id], onDelete: Cascade)

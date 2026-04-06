@@ -13,6 +13,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import type { AuthUser } from '../common/types/auth-user.type';
+import { getPublicErrorMessage } from '../common/utils/prisma-error-mapper';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreditSettlementDto } from './dto/credit-settlement.dto';
@@ -310,7 +311,9 @@ export class OrdersService {
       }
     } catch (err) {
       await this.prisma.order.delete({ where: { id: order.id } });
-      throw err;
+      throw new BadRequestException(
+        `Could not update inventory for this order, so the order was cancelled. ${getPublicErrorMessage(err)}`,
+      );
     }
 
     return { order, warnings };

@@ -52,7 +52,11 @@ export class KeepAliveService implements OnModuleInit, OnModuleDestroy {
     try {
       await fetch(url, { method: 'GET' });
     } catch (error) {
-      this.logger.warn(`Keep-alive ping failed: ${String(error)}`);
+      const detail =
+        error instanceof Error ? error.message : JSON.stringify(error);
+      this.logger.warn(
+        `Keep-alive ping failed for ${url}: ${detail}`,
+      );
     }
   }
 }

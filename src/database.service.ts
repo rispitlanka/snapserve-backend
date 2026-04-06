@@ -35,6 +35,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
     try {
       await client.query('SELECT 1');
       this.logger.log('Connected to Postgres successfully.');
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Postgres connection test failed. Verify DATABASE_URL and that the database is reachable. ${detail}`,
+      );
     } finally {
       client.release();
     }

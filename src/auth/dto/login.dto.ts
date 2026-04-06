@@ -4,7 +4,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class LoginDto {
   @ApiPropertyOptional({
     description: 'Restaurant ID for restaurant-scoped login',
-    example: 'A1B2C3',
+    example: 'rispit-downtown-01',
   })
   @IsOptional()
   @IsString()

@@ -1,14 +1,26 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Param,
   Patch,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Role } from '@prisma/client';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
+import type { FileFilterCallback } from 'multer';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -18,13 +30,40 @@ import { AddIngredientDto } from './dto/add-ingredient.dto';
 import { AddAddonToMenuItemDto } from './dto/add-addon-to-menu-item.dto';
 import { CreateAddonDto } from './dto/create-addon.dto';
 import { CreateMenuCategoryDto } from './dto/create-menu-category.dto';
-import { CreateMenuItemDto } from './dto/create-menu-item.dto';
+import { CloudinaryService } from './cloudinary.service';
 import { CreateVariantDto } from './dto/create-variant.dto';
 import { UpdateAddonDto } from './dto/update-addon.dto';
 import { UpdateMenuCategoryDto } from './dto/update-menu-category.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { UpdateVariantDto } from './dto/update-variant.dto';
+import {
+  hasUpdateMenuItemPayload,
+  parseCreateMenuItemFromDataField,
+  parseUpdateMenuItemFromDataField,
+} from './menu-item-form.util';
 import { MenuService } from './menu.service';
+
+const MENU_ITEM_IMAGE_FIELD = 'image';
+
+const menuItemImageMulterOptions = {
+  storage: memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (
+    _req: Express.Request,
+    file: Express.Multer.File,
+    cb: FileFilterCallback,
+  ) => {
+    if (!file.mimetype.startsWith('image/')) {
+      cb(
+        new BadRequestException(
+          `Upload rejected: "${file.originalname}" is not an image (received MIME type ${file.mimetype}).`,
+        ),
+      );
+      return;
+    }
+    cb(null, true);
+  },
+};
 
 @ApiTags('Menu')
 @ApiBearerAuth()
@@ -32,7 +71,10 @@ import { MenuService } from './menu.service';
 @Roles(Role.RESTAURANT_ADMIN)
 @Controller('menu')
 export class MenuController {
-  constructor(private readonly menuService: MenuService) {}
+  constructor(
+    private readonly menuService: MenuService,
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
 
   @ApiOperation({
     summary:
@@ -81,12 +123,43 @@ export class MenuController {
     );
   }
 
-  @ApiOperation({ summary: 'Create menu item' })
+  @ApiOperation({
+    summary: 'Create menu item',
+    description:
+      'Send multipart/form-data: field "data" (JSON string of CreateMenuItemDto) and optional field "image" (file). If "image" is sent, it is uploaded to Cloudinary and overrides menuImage in "data".',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['data'],
+      properties: {
+        data: {
+          type: 'string',
+          description:
+            'JSON string: name, categoryId, menuType, cost, optional kotEnabled, menuImage (URL), varients, addons, status.',
+        },
+        image: {
+          type: 'string',
+          format: 'binary',
+          description: 'Optional image file (PNG, JPEG, WebP, etc.)',
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor(MENU_ITEM_IMAGE_FIELD, menuItemImageMulterOptions),
+  )
   @Post('items')
-  createMenuItem(
+  async createMenuItem(
     @CurrentUser() actor: AuthUser,
-    @Body() dto: CreateMenuItemDto,
+    @Body('data') dataJson: string,
+    @UploadedFile() image?: Express.Multer.File,
   ) {
+    const dto = parseCreateMenuItemFromDataField(dataJson);
+    if (image) {
+      dto.menuImage = await this.cloudinaryService.uploadMenuImage(image);
+    }
     return this.menuService.createMenuItem(actor, dto);
   }
 
@@ -97,13 +170,58 @@ export class MenuController {
     return this.menuService.listMenuItems(actor);
   }
 
-  @ApiOperation({ summary: 'Update menu item' })
+  @ApiOperation({
+    summary: 'Update menu item',
+    description:
+      'Send multipart/form-data: optional "data" (JSON string of UpdateMenuItemDto) and/or optional "image" file. At least one of data or image is required.',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'string',
+          description:
+            'JSON string of fields to update (name, categoryId, menuType, cost, menuImage URL, varients, addons, status, etc.).',
+        },
+        image: {
+          type: 'string',
+          format: 'binary',
+          description:
+            'Optional new image file; uploaded to Cloudinary and stored as imageUrl.',
+        },
+      },
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor(MENU_ITEM_IMAGE_FIELD, menuItemImageMulterOptions),
+  )
   @Patch('items/:id')
-  updateMenuItem(
+  async updateMenuItem(
     @CurrentUser() actor: AuthUser,
     @Param('id') id: string,
-    @Body() dto: UpdateMenuItemDto,
+    @Body('data') dataJson: string | undefined,
+    @UploadedFile() image?: Express.Multer.File,
   ) {
+    const hasData =
+      dataJson !== undefined &&
+      dataJson !== null &&
+      String(dataJson).trim() !== '';
+    if (!hasData && !image) {
+      throw new BadRequestException(
+        'Send at least one of: field "data" (JSON with fields to update) or field "image" (image file).',
+      );
+    }
+    const dto = parseUpdateMenuItemFromDataField(dataJson);
+    if (image) {
+      dto.menuImage = await this.cloudinaryService.uploadMenuImage(image);
+    }
+    if (!hasUpdateMenuItemPayload(dto)) {
+      throw new BadRequestException(
+        'Field "data" must include at least one property to update, or send an "image" file.',
+      );
+    }
     return this.menuService.updateMenuItem(actor, id, dto);
   }
 
