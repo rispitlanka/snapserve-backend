@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import type { AuthUser } from '../common/types/auth-user.type';
 import { CreateBrandDto } from './dto/create-brand.dto';
+import { AdjustInventoryStockDto } from './dto/adjust-inventory-stock.dto';
 import { CreateItemCategoryDto } from './dto/create-category.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
 import { CreateItemSubCategoryDto } from './dto/create-sub-category.dto';
@@ -89,8 +90,20 @@ export class InventoryController {
   }
 
   @ApiOperation({
+    summary: 'Manually subtract stock from an inventory item',
+  })
+  @Post('items/:id/adjust-stock')
+  adjustStock(
+    @CurrentUser() actor: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: AdjustInventoryStockDto,
+  ) {
+    return this.inventoryService.adjustStock(actor, id, dto);
+  }
+
+  @ApiOperation({
     summary:
-      'Purchase history for an inventory item (date, description, qty, ending stock)',
+      'Stock movement history for an inventory item (date, kind, delta, ending stock)',
   })
   @Get('items/:id/history')
   getHistory(@CurrentUser() actor: AuthUser, @Param('id') id: string) {
@@ -99,7 +112,7 @@ export class InventoryController {
 
   @ApiOperation({
     summary:
-      'Get one inventory item with category/sub/brand and purchase history',
+      'Get one inventory item with category/sub/brand and stock movement history',
   })
   @Get('items/:id')
   getItem(@CurrentUser() actor: AuthUser, @Param('id') id: string) {

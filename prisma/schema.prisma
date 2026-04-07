@@ -390,6 +390,7 @@ enum InventoryMovementKind {
   PURCHASE
   ORDER_USE
   VOID_RESTORE
+  MANUAL_ADJUST
 }
 
 model InventoryMovement {

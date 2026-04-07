@@ -5,9 +5,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { InventoryMovementKind, Prisma } from '@prisma/client';
 import type { AuthUser } from '../common/types/auth-user.type';
 import { PrismaService } from '../prisma/prisma.service';
+import { AdjustInventoryStockDto } from './dto/adjust-inventory-stock.dto';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { CreateItemCategoryDto } from './dto/create-category.dto';
 import { CreateInventoryItemDto } from './dto/create-inventory-item.dto';
@@ -196,6 +197,61 @@ export class InventoryService {
     });
   }
 
+  async adjustStock(
+    actor: AuthUser,
+    inventoryItemId: string,
+    dto: AdjustInventoryStockDto,
+  ) {
+    const restaurantId = this.requireRestaurant(actor);
+    if (dto.count <= 0) {
+      throw new BadRequestException('count must be greater than zero.');
+    }
+
+    const item = await this.prisma.inventoryItem.findFirst({
+      where: { id: inventoryItemId, restaurantId },
+      select: { id: true, name: true, currentStock: true },
+    });
+    if (!item) {
+      throw new NotFoundException('Inventory item not found.');
+    }
+
+    const count = new Prisma.Decimal(dto.count);
+    const nextStock = new Prisma.Decimal(item.currentStock.toString()).sub(count);
+    const description = `manual-adjustment: ${dto.reason.trim()}`;
+
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.inventoryItem.update({
+        where: { id: inventoryItemId },
+        data: { currentStock: { decrement: count } },
+        include: {
+          category: true,
+          subCategory: true,
+          brand: true,
+        },
+      }),
+      this.prisma.inventoryMovement.create({
+        data: {
+          restaurantId,
+          inventoryItemId,
+          quantityDelta: count.mul(-1),
+          kind: InventoryMovementKind.MANUAL_ADJUST,
+          description,
+        },
+      }),
+    ]);
+
+    return {
+      item: updated,
+      adjustment: {
+        inventoryItemId,
+        itemName: item.name,
+        quantityDelta: count.mul(-1),
+        reason: dto.reason.trim(),
+        resultingStock: nextStock,
+      },
+    };
+  }
+
   async getItemById(actor: AuthUser, id: string) {
     const restaurantId = this.requireRestaurant(actor);
     const item = await this.prisma.inventoryItem.findFirst({
@@ -209,13 +265,13 @@ export class InventoryService {
     if (!item) {
       throw new NotFoundException('Inventory item not found.');
     }
-    const history = await this.getPurchaseHistoryForItem(actor, id);
+    const history = await this.getStockHistoryForItem(actor, id);
     return { ...item, history };
   }
 
   async getItemHistory(actor: AuthUser, id: string) {
     await this.assertItemInRestaurant(actor, id);
-    return this.getPurchaseHistoryForItem(actor, id);
+    return this.getStockHistoryForItem(actor, id);
   }
 
   private async assertItemInRestaurant(actor: AuthUser, itemId: string) {
@@ -229,32 +285,28 @@ export class InventoryService {
     }
   }
 
-  private async getPurchaseHistoryForItem(actor: AuthUser, itemId: string) {
+  private async getStockHistoryForItem(actor: AuthUser, itemId: string) {
     const restaurantId = this.requireRestaurant(actor);
-    const lines = await this.prisma.purchaseItem.findMany({
+    const rows = await this.prisma.inventoryMovement.findMany({
       where: {
         inventoryItemId: itemId,
-        purchase: { restaurantId },
-      },
-      include: {
-        purchase: true,
+        restaurantId,
       },
       orderBy: [
-        { purchase: { receiveDate: 'asc' } },
-        { purchase: { createdAt: 'asc' } },
+        { createdAt: 'asc' },
         { id: 'asc' },
       ],
     });
 
-    let endingStock = 0;
-    return lines.map((line) => {
-      const qty = Number(line.quantity.toString());
-      endingStock += qty;
+    let endingStock = new Prisma.Decimal(0);
+    return rows.map((row) => {
+      const qty = new Prisma.Decimal(row.quantityDelta.toString());
+      endingStock = endingStock.add(qty);
       return {
-        dateTime: line.purchase.receiveDate.toISOString(),
-        description:
-          line.description ?? line.purchase.notes ?? line.purchase.refNo ?? '',
-        quantity: line.quantity,
+        dateTime: row.createdAt.toISOString(),
+        description: row.description,
+        kind: row.kind,
+        quantityDelta: row.quantityDelta,
         endingStock,
       };
     });
