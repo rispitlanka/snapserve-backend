@@ -4,15 +4,32 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InventoryMovementKind, Prisma } from '@prisma/client';
+import {
+  InventoryMovementKind,
+  Prisma,
+  PurchasePaymentMethod,
+  PurchasePaymentStatus,
+} from '@prisma/client';
 import type { AuthUser } from '../common/types/auth-user.type';
 import { getPublicErrorMessage } from '../common/utils/prisma-error-mapper';
 import { PrismaService } from '../prisma/prisma.service';
+import { PurchaseCreditSettlementDto } from './dto/credit-settlement.dto';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 
 @Injectable()
 export class PurchasesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private decimalToNumber(value: Prisma.Decimal): number {
+    return Number(value.toFixed(2));
+  }
+
+  private purchasePaidTotal(payments: { amount: Prisma.Decimal }[]): Prisma.Decimal {
+    return payments.reduce(
+      (sum, p) => sum.add(new Prisma.Decimal(p.amount.toString())),
+      new Prisma.Decimal(0),
+    );
+  }
 
   private requireRestaurant(actor: AuthUser): string {
     if (!actor.restaurantId) {
@@ -57,6 +74,10 @@ export class PurchasesService {
         notes: dto.notes,
         refNo: dto.refNo,
         paymentMethod: dto.paymentMethod,
+        paymentStatus:
+          dto.paymentMethod === PurchasePaymentMethod.CREDIT
+            ? PurchasePaymentStatus.CREDIT
+            : PurchasePaymentStatus.PAID,
         restaurantAdminId: actor.sub,
         subTotal: new Prisma.Decimal(dto.subTotal.toFixed(2)),
         items: {
@@ -75,6 +96,7 @@ export class PurchasesService {
         supplier: true,
         restaurantAdmin: { select: { id: true, name: true } },
         items: true,
+        payments: true,
       },
     });
 
@@ -122,8 +144,102 @@ export class PurchasesService {
         supplier: true,
         restaurantAdmin: { select: { id: true, name: true } },
         items: true,
+        payments: { orderBy: { createdAt: 'asc' } },
       },
       orderBy: { receiveDate: 'desc' },
+    }).then((rows) =>
+      rows.map((p) => {
+        const paidTotal = this.purchasePaidTotal(p.payments);
+        const outstanding = new Prisma.Decimal(p.subTotal.toString()).sub(paidTotal);
+        return {
+          ...p,
+          paidTotal,
+          outstanding: outstanding.lt(0) ? new Prisma.Decimal(0) : outstanding,
+        };
+      }),
+    );
+  }
+
+  async settleCredit(
+    actor: AuthUser,
+    purchaseId: string,
+    dto: PurchaseCreditSettlementDto,
+  ) {
+    const restaurantId = this.requireRestaurant(actor);
+
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id: purchaseId, restaurantId },
+      include: {
+        payments: { orderBy: { createdAt: 'asc' } },
+        supplier: true,
+        restaurantAdmin: { select: { id: true, name: true } },
+        items: true,
+      },
     });
+    if (!purchase) {
+      throw new NotFoundException('Purchase not found.');
+    }
+    if (purchase.paymentMethod !== PurchasePaymentMethod.CREDIT) {
+      throw new BadRequestException(
+        'Only purchases marked as CREDIT can be settled later.',
+      );
+    }
+
+    const outstanding = new Prisma.Decimal(purchase.subTotal.toString()).sub(
+      this.purchasePaidTotal(purchase.payments),
+    );
+    if (outstanding.lte(0)) {
+      throw new BadRequestException(
+        'This purchase has no outstanding credit balance.',
+      );
+    }
+
+    const payAmount = new Prisma.Decimal(dto.amount.toFixed(2));
+    if (payAmount.lte(0)) {
+      throw new BadRequestException('Amount must be greater than zero.');
+    }
+    if (payAmount.gt(outstanding)) {
+      throw new BadRequestException(
+        `Amount exceeds outstanding balance (${this.decimalToNumber(outstanding)}).`,
+      );
+    }
+
+    const newOutstanding = outstanding.sub(payAmount);
+    const nextStatus = newOutstanding.lte(0)
+      ? PurchasePaymentStatus.PAID
+      : PurchasePaymentStatus.CREDIT;
+
+    await this.prisma.$transaction([
+      this.prisma.purchasePayment.create({
+        data: {
+          purchaseId,
+          method: dto.method,
+          amount: payAmount,
+          note: dto.note?.trim() || null,
+        },
+      }),
+      this.prisma.purchase.update({
+        where: { id: purchaseId },
+        data: { paymentStatus: nextStatus },
+      }),
+    ]);
+
+    const updated = await this.prisma.purchase.findFirstOrThrow({
+      where: { id: purchaseId, restaurantId },
+      include: {
+        supplier: true,
+        restaurantAdmin: { select: { id: true, name: true } },
+        items: true,
+        payments: { orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    const paidTotal = this.purchasePaidTotal(updated.payments);
+    const remaining = new Prisma.Decimal(updated.subTotal.toString()).sub(paidTotal);
+    return {
+      ...updated,
+      paidTotal,
+      outstanding: remaining.lt(0) ? new Prisma.Decimal(0) : remaining,
+    };
   }
 }
