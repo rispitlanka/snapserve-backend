@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  CustomerLoyaltyTxnType,
   InventoryMovementKind,
   OrderPayMethod,
   OrderPaymentStatus,
@@ -100,6 +101,9 @@ export class OrdersService {
     await this.assertUserInRestaurant(placedByUserId, restaurantId);
     await this.assertUserInRestaurant(receivedByUserId, restaurantId);
 
+    let customerForLoyalty:
+      | { id: string; loyaltyPoints: Prisma.Decimal }
+      | null = null;
     if (dto.customer) {
       const cust = await this.prisma.customer.findFirst({
         where: {
@@ -108,13 +112,62 @@ export class OrdersService {
           name: dto.customer.name,
           mobileNumber: dto.customer.mobileNumber,
         },
-        select: { id: true },
+        select: { id: true, loyaltyPoints: true },
       });
       if (!cust) {
         throw new BadRequestException(
           'Customer does not match this restaurant.',
         );
       }
+      customerForLoyalty = cust;
+    }
+
+    const restaurantSettings = await this.prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+      select: {
+        loyaltyEnabled: true,
+        loyaltyMargin: true,
+        loyaltyPercentage: true,
+      },
+    });
+    if (!restaurantSettings) {
+      throw new NotFoundException('Restaurant not found.');
+    }
+
+    const pointsUsed = new Prisma.Decimal((dto.loyaltyPointsUsed ?? 0).toFixed(2));
+    if (pointsUsed.gt(0) && !customerForLoyalty) {
+      throw new BadRequestException(
+        'A linked customer is required to redeem loyalty points.',
+      );
+    }
+    if (pointsUsed.gt(0) && !restaurantSettings.loyaltyEnabled) {
+      throw new BadRequestException(
+        'Loyalty points cannot be redeemed because loyalty is disabled for this restaurant.',
+      );
+    }
+    if (pointsUsed.gt(0) && customerForLoyalty) {
+      const current = new Prisma.Decimal(customerForLoyalty.loyaltyPoints.toString());
+      if (pointsUsed.gt(current)) {
+        throw new BadRequestException(
+          `Loyalty points exceed available balance (${this.decimalToNumber(current)}).`,
+        );
+      }
+    }
+
+    const totalAmountDecimal = new Prisma.Decimal(dto.totalAmount.toFixed(2));
+    let pointsEarned = new Prisma.Decimal(0);
+    if (
+      customerForLoyalty &&
+      restaurantSettings.loyaltyEnabled &&
+      totalAmountDecimal.gte(
+        new Prisma.Decimal(restaurantSettings.loyaltyMargin.toString()),
+      )
+    ) {
+      const percentage = new Prisma.Decimal(
+        restaurantSettings.loyaltyPercentage.toString(),
+      );
+      pointsEarned = totalAmountDecimal.mul(percentage).div(100);
+      pointsEarned = new Prisma.Decimal(pointsEarned.toFixed(2));
     }
 
     const consumption = new Map<string, Prisma.Decimal>();
@@ -225,6 +278,8 @@ export class OrdersService {
         customerId: dto.customer?.id,
         customerName: dto.customer?.name,
         customerMobile: dto.customer?.mobileNumber,
+        loyaltyPointsUsed: pointsUsed,
+        loyaltyPointsEarned: pointsEarned,
         lines: {
           create: dto.items.map((line) => {
             const effectiveQty = Math.max(
@@ -303,6 +358,49 @@ export class OrdersService {
           },
         }),
       );
+    }
+
+    if (customerForLoyalty) {
+      if (pointsUsed.gt(0)) {
+        stockOps.push(
+          this.prisma.customer.update({
+            where: { id: customerForLoyalty.id },
+            data: { loyaltyPoints: { decrement: pointsUsed } },
+          }),
+        );
+        stockOps.push(
+          this.prisma.customerLoyaltyTransaction.create({
+            data: {
+              customerId: customerForLoyalty.id,
+              restaurantId,
+              orderId: order.id,
+              type: CustomerLoyaltyTxnType.REDEEM,
+              pointsDelta: pointsUsed.mul(-1),
+              description: `Redeemed on order ${order.invoiceId}`,
+            },
+          }),
+        );
+      }
+      if (pointsEarned.gt(0)) {
+        stockOps.push(
+          this.prisma.customer.update({
+            where: { id: customerForLoyalty.id },
+            data: { loyaltyPoints: { increment: pointsEarned } },
+          }),
+        );
+        stockOps.push(
+          this.prisma.customerLoyaltyTransaction.create({
+            data: {
+              customerId: customerForLoyalty.id,
+              restaurantId,
+              orderId: order.id,
+              type: CustomerLoyaltyTxnType.EARN,
+              pointsDelta: pointsEarned,
+              description: `Earned on order ${order.invoiceId}`,
+            },
+          }),
+        );
+      }
     }
 
     try {
@@ -473,6 +571,16 @@ export class OrdersService {
       throw new BadRequestException('Order is already voided.');
     }
 
+    let customer:
+      | { id: string; loyaltyPoints: Prisma.Decimal }
+      | null = null;
+    if (existing.customerId) {
+      customer = await this.prisma.customer.findFirst({
+        where: { id: existing.customerId, restaurantId },
+        select: { id: true, loyaltyPoints: true },
+      });
+    }
+
     const voidOps: Prisma.PrismaPromise<unknown>[] = [];
     for (const m of existing.inventoryMovements) {
       const restoreQty = new Prisma.Decimal(m.quantityDelta.toString()).mul(-1);
@@ -494,6 +602,38 @@ export class OrdersService {
             kind: InventoryMovementKind.VOID_RESTORE,
             description: 'void restore',
             orderId,
+          },
+        }),
+      );
+    }
+    const used = new Prisma.Decimal(existing.loyaltyPointsUsed.toString());
+    const earned = new Prisma.Decimal(existing.loyaltyPointsEarned.toString());
+    if (customer && (used.gt(0) || earned.gt(0))) {
+      const net = used.sub(earned);
+      if (net.gt(0)) {
+        voidOps.push(
+          this.prisma.customer.update({
+            where: { id: customer.id },
+            data: { loyaltyPoints: { increment: net } },
+          }),
+        );
+      } else if (net.lt(0)) {
+        voidOps.push(
+          this.prisma.customer.update({
+            where: { id: customer.id },
+            data: { loyaltyPoints: { decrement: net.mul(-1) } },
+          }),
+        );
+      }
+      voidOps.push(
+        this.prisma.customerLoyaltyTransaction.create({
+          data: {
+            customerId: customer.id,
+            restaurantId,
+            orderId,
+            type: CustomerLoyaltyTxnType.VOID_RESTORE,
+            pointsDelta: net,
+            description: `Loyalty adjustment due to voided order ${existing.invoiceId}`,
           },
         }),
       );

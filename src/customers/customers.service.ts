@@ -193,4 +193,41 @@ export class CustomersService {
       })
       .filter((row) => row.creditOutstanding.gt(0));
   }
+
+  async getLoyaltyPoints(actor: AuthUser, customerId: string) {
+    const restaurantId = actor.restaurantId;
+    if (!restaurantId) {
+      throw new ForbiddenException('Restaurant context is required.');
+    }
+    await this.assertCustomerInRestaurant(customerId, restaurantId);
+
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, restaurantId },
+      select: { id: true, name: true, loyaltyPoints: true },
+    });
+    if (!customer) {
+      throw new NotFoundException('Customer not found.');
+    }
+
+    const transactions = await this.prisma.customerLoyaltyTransaction.findMany({
+      where: { customerId, restaurantId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        type: true,
+        pointsDelta: true,
+        description: true,
+        orderId: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      customerId: customer.id,
+      customerName: customer.name,
+      loyaltyPoints: customer.loyaltyPoints,
+      transactions,
+    };
+  }
 }

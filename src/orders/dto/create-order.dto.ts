@@ -221,6 +221,17 @@ export class CreateOrderDto {
   customer?: OrderCustomerDto;
 
   @ApiPropertyOptional({
+    description:
+      'Loyalty points to redeem in this order. Requires linked customer and enabled loyalty settings.',
+    default: 0,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  loyaltyPointsUsed?: number;
+
+  @ApiPropertyOptional({
     description: 'Defaults to current user (cashier)',
   })
   @IsOptional()

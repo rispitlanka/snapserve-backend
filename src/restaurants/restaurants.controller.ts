@@ -1,10 +1,13 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
+import type { AuthUser } from '../common/types/auth-user.type';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
+import { UpdateLoyaltySettingsDto } from './dto/update-loyalty-settings.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { RestaurantsService } from './restaurants.service';
 
@@ -32,5 +35,22 @@ export class RestaurantsController {
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdateRestaurantDto) {
     return this.restaurantsService.update(id, dto);
+  }
+
+  @ApiOperation({ summary: 'Get loyalty settings (restaurant admin only)' })
+  @Roles(Role.RESTAURANT_ADMIN)
+  @Get('me/loyalty-settings')
+  getLoyaltySettings(@CurrentUser() actor: AuthUser) {
+    return this.restaurantsService.getLoyaltySettings(actor);
+  }
+
+  @ApiOperation({ summary: 'Update loyalty settings (restaurant admin only)' })
+  @Roles(Role.RESTAURANT_ADMIN)
+  @Patch('me/loyalty-settings')
+  updateLoyaltySettings(
+    @CurrentUser() actor: AuthUser,
+    @Body() dto: UpdateLoyaltySettingsDto,
+  ) {
+    return this.restaurantsService.updateLoyaltySettings(actor, dto);
   }
 }

@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "Restaurant"
+ADD COLUMN "loyaltyEnabled" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "loyaltyMargin" DECIMAL(12,2) NOT NULL DEFAULT 0,
+ADD COLUMN "loyaltyPercentage" DECIMAL(5,2) NOT NULL DEFAULT 0;

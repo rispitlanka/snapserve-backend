@@ -55,4 +55,16 @@ export class CustomersController {
   ) {
     return this.customersService.getCreditOutstanding(actor, customerId);
   }
+
+  @ApiOperation({
+    summary: 'Get loyalty points and recent loyalty transactions for a customer',
+  })
+  @Roles(Role.CASHIER, Role.RESTAURANT_ADMIN)
+  @Get(':customerId/loyalty-points')
+  loyaltyPoints(
+    @CurrentUser() actor: AuthUser,
+    @Param('customerId') customerId: string,
+  ) {
+    return this.customersService.getLoyaltyPoints(actor, customerId);
+  }
 }
