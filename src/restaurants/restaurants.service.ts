@@ -1,10 +1,12 @@
 import {
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
+import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 
 @Injectable()
 export class RestaurantsService {
@@ -36,6 +38,27 @@ export class RestaurantsService {
   list() {
     return this.prisma.restaurant.findMany({
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async update(id: string, dto: UpdateRestaurantDto) {
+    const existing = await this.prisma.restaurant.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new NotFoundException('Restaurant not found.');
+    }
+
+    return this.prisma.restaurant.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.mobileNumber !== undefined
+          ? { mobileNumber: dto.mobileNumber }
+          : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      },
     });
   }
 }

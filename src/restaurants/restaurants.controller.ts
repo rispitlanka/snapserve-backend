@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
+import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { RestaurantsService } from './restaurants.service';
 
 @ApiTags('Restaurants')
@@ -25,5 +26,11 @@ export class RestaurantsController {
   @Get()
   list() {
     return this.restaurantsService.list();
+  }
+
+  @ApiOperation({ summary: 'Update restaurant (super admin only)' })
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateRestaurantDto) {
+    return this.restaurantsService.update(id, dto);
   }
 }
